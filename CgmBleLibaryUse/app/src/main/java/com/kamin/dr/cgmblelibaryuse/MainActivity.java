@@ -41,7 +41,6 @@ public class MainActivity extends BleLibary {
     public void onClick(View view) {
         switch (view.getId()) {
             case R.id.btnOpenBle:
-                Toast.makeText(this, "btnOpenBle", Toast.LENGTH_LONG).show();
                 Log.i(TAG, "CGM--in btnOpenBle OnClick()");
                 super.openBle(true);
                 break;
@@ -51,7 +50,7 @@ public class MainActivity extends BleLibary {
                 break;
             case R.id.btnScan:
                 Log.i(TAG, "CGM--in btnScan OnClick()");
-                super.scanLeDevice(true);
+                super.scanBleDevice(true);
                 break;
         }
     }

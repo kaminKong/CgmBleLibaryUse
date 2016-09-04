@@ -36,6 +36,11 @@ public class BleService extends Service implements Constants {
         if (instance == null) throw new NullPointerException("BleService is not bind.");
         return instance;
     }
+
+    public BluetoothAdapter getmBluetoothAdapter() {
+        return mBluetoothAdapter;
+    }
+
     private final IBinder mBinder = new LocalBinder();
     public class LocalBinder extends Binder {
         public BleService getService() {
@@ -72,9 +77,7 @@ public class BleService extends Service implements Constants {
      * @return Return true if the initialization is successful.
      */
     public boolean initialize() {
-        // For API level 18 and above, get a reference to BluetoothAdapter through
-        // BluetoothManager.
-        Log.i(TAG, "CGM--BleService.initialize(),begin----");
+        // For API level 18 and above, get a reference to BluetoothAdapter through BluetoothManager.
         if (mBluetoothManager == null) {
             mBluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
             if (mBluetoothManager == null) {

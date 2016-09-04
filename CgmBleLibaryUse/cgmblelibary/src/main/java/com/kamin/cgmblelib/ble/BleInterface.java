@@ -13,6 +13,6 @@ public interface BleInterface {
     //open ble
     public void openBle(Boolean enable);
     //scan ble,get device list
-    public BaseAdapter scanBleDevice(Boolean enable);
+    public void scanBleDevice(Boolean enable);
 
 }
