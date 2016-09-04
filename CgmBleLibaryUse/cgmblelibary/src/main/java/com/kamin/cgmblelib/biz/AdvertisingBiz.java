@@ -1,9 +1,13 @@
 package com.kamin.cgmblelib.biz;
 
 import android.content.Context;
+import android.text.TextUtils;
+
+
 import com.kamin.cgmblelib.database.DBHelperAdvertise;
 import com.kamin.cgmblelib.entities.AdvertisingInfo;
 import com.kamin.cgmblelib.utils.DataHandle;
+
 import java.nio.ByteBuffer;
 
 /**

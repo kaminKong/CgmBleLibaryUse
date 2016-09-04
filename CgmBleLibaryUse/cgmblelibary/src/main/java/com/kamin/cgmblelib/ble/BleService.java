@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
 
+import com.kamin.cgmblelib.biz.AdvertisingBiz;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,22 +27,18 @@ public class BleService extends Service implements Constants {
     private BluetoothManager mBluetoothManager;
     private BluetoothAdapter mBluetoothAdapter;
     private BluetoothGatt mBluetoothGatt;
-    private String mBluetoothDeviceAddress;
-    private int mConnState = STATE_DISCONNECTED;
+    private static final long SCAN_PERIOD = 5 * 1000; // Stop scanning after 10 seconds.
+    private boolean isScanning;
+    private List<BluetoothDevice> mScanLeDeviceList;
     private static BleService instance = null;
     public BleService() {
         instance = this;
-        Log.i(TAG, "blelib--BleService()");
+        Log.i(TAG, "CGM--BleService()");
     }
     public static BleService getInstance() {
         if (instance == null) throw new NullPointerException("BleService is not bind.");
         return instance;
     }
-
-    public BluetoothAdapter getmBluetoothAdapter() {
-        return mBluetoothAdapter;
-    }
-
     private final IBinder mBinder = new LocalBinder();
     public class LocalBinder extends Binder {
         public BleService getService() {
@@ -93,6 +91,9 @@ public class BleService extends Service implements Constants {
         Log.i(TAG, "CGM--BleService.initialize(),end----mBluetoothAdapter="+mBluetoothAdapter);
         return true;
     }
+    public boolean isEnabledBluetooth(){
+        return mBluetoothAdapter.isEnabled();
+    }
     /**
      * Turn on or off the local Bluetooth adapter;do not use without explicit
      * user action to turn on Bluetooth.
@@ -114,7 +115,83 @@ public class BleService extends Service implements Constants {
             return false;
         }
     }
-
-
+    /**
+     * If Ble is scaning return true, if not return false.
+     *
+     * @return ble whether scanning
+     */
+    public boolean isScanning(){Log.d(TAG, "blelib--isScanning()");
+        return isScanning;
+    }
+    /**
+     * Scan Ble device.
+     *
+     * @param enable If true, start scan ble device.False stop scan.
+     */
+    public void scanLeDevice(boolean enable) {
+        Log.i(TAG, "CGM--scanLeDevice");
+        this.scanLeDevice(enable, SCAN_PERIOD);
+    }
+    /**
+     * Scan Ble device.
+     *
+     * @param enable     If true, start scan ble device.False stop scan.
+     * @param scanPeriod scan ble period time
+     */
+    public void scanLeDevice(final boolean enable, long scanPeriod) {
+        Log.i(TAG, "CGM--scanLeDevice,enable="+enable);
+        if (isScanning) return;
+        if (enable) {
+            //Stop scanning after a predefined scan period.
+            new Handler().postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    isScanning = false;
+                    mBluetoothAdapter.stopLeScan(mScanCallback);
+                    broadcastUpdate(ACTION_SCAN_FINISHED);
+                    if (mScanLeDeviceList != null) {
+                        mScanLeDeviceList.clear();
+                        mScanLeDeviceList = null;
+                    }
+                }
+            }, scanPeriod);
+            if (mScanLeDeviceList == null) {
+                mScanLeDeviceList = new ArrayList<>();
+            }
+            mScanLeDeviceList.clear();
+            isScanning = true;
+            mBluetoothAdapter.startLeScan(mScanCallback);
+        } else {
+            isScanning = false;
+            mBluetoothAdapter.stopLeScan(mScanCallback);
+            broadcastUpdate(ACTION_SCAN_FINISHED);
+            if (mScanLeDeviceList != null) {
+                mScanLeDeviceList.clear();
+                mScanLeDeviceList = null;
+            }
+        }
+    }
+    /**
+     * Device scan callback
+     */
+    private final BluetoothAdapter.LeScanCallback mScanCallback = new BluetoothAdapter.LeScanCallback() {
+        @Override
+        public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
+            Log.i(TAG, "CGM--onLeScan()");
+            if (mScanLeDeviceList.contains(device)) return;
+            mScanLeDeviceList.add(device);
+            broadcastUpdate(ACTION_BLUETOOTH_DEVICE, device);
+        }
+    };
+    private void broadcastUpdate(final String action) {
+        final Intent intent = new Intent(action);
+        sendBroadcast(intent);
+    }
+    private void broadcastUpdate(final String action, BluetoothDevice device) {
+        final Intent intent = new Intent(action);
+        intent.putExtra("name", device.getName());
+        intent.putExtra("address", device.getAddress());
+        sendBroadcast(intent);
+    }
 
 }

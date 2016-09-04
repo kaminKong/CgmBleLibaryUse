@@ -1,16 +1,11 @@
 package com.kamin.cgmblelib.ble;
 
-
-
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Handler;
@@ -18,62 +13,47 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.IBinder;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.BaseAdapter;
 import android.widget.Toast;
-import com.kamin.cgmblelib.biz.AdvertisingBiz;
-import com.kamin.cgmblelib.utils.Conversion;
 
-public class BleLibary extends AppCompatActivity implements BleInterface {
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public abstract class BleLibary extends AppCompatActivity implements BleInterface {
     //Debug
     private static final String TAG = BleLibary.class.getName();
-    private BluetoothAdapter mBluetoothAdapter;
+    private static final int REQUEST_ENABLE_BT = 1;
     private Context mainContext=this;
     private BleService mBleService;
     private boolean mIsBind;
-    private boolean mScanning =false;
-    private static final long SCAN_PERIOD = 5 * 1000; // Stop scanning after 10 seconds.
-    private BleDeviceListAdapter mBleDeviceListAdapter=null;
-    AlertDialog mScanDeviceDialog;
+    private List<Map<String, Object>> deviceMapList;
+    private static final long OPENBLE_PERIOD = 12 * 1000; // Stop scanning after 10 seconds.
+
+    public abstract void showDeviceMapList(List<Map<String, Object>> deviceMapList);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "CGM--BleLibary.onCreate()");
         super.onCreate(savedInstanceState);
-
-        if(!isSupportBle())//是否支持蓝牙ble，如果支持获取BluetoothAdapter对象mBluetoothAdapter
+        if(!isSupportBle())//是否支持蓝牙ble，如果不支持结束应用
         {
             Toast.makeText(mainContext, "Bluetooth BLE is not supported.", Toast.LENGTH_LONG).show();
             ((Activity) mainContext).finish();
         }
         this.doBindService();//绑定服务
-        // Initializes list view adapter.
-        mBleDeviceListAdapter = new BleDeviceListAdapter((Activity) mainContext);//new适配器对象
-        //注册广播？
-        mScanDeviceDialog= new AlertDialog.Builder(mainContext) .setTitle("BLE Device Scan...").setAdapter(mBleDeviceListAdapter, new DialogInterface.OnClickListener() {
-
-            @Override
-            public void onClick(DialogInterface dialog, int which)
-            {
-                final BluetoothDevice device = mBleDeviceListAdapter.getDevice(which);
-                if (device == null) return;
-                scanLeDevice(false);
-                if(device.getName()!=null && device.getAddress()!=null) Log.i(TAG, "CGM--mScanDeviceDialog.onClick()--deviceName="+device.getName()+",devcieAddress="+device.getAddress());
-            }
-        }).setOnCancelListener(new DialogInterface.OnCancelListener() {
-            @Override
-            public void onCancel(DialogInterface arg0) {
-                Log.i(TAG, "CGM--mScanDeviceDialog.onCancel()");
-                mScanDeviceDialog.dismiss();
-                scanLeDevice(false);
-            }
-        }).create();
-
+        registerReceiver(bleReceiver, makeIntentFilter());//注册广播
+        deviceMapList=new ArrayList<>();
     }
+    /**
+     * Check for your device to support Ble
+     *
+     * @return true is support    false is not support
+     */
     public boolean isSupportBle() {
         Log.i(TAG, "CGM--isSupportBle()");
         return getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE);
     }
-
     /**
      * 绑定服务
      */
@@ -91,8 +71,6 @@ public class BleLibary extends AppCompatActivity implements BleInterface {
             if (!mBleService.initialize()) {
                 Toast.makeText(BleLibary.this, "Bluetooth  is not supported", Toast.LENGTH_SHORT).show();
                 ((Activity) mainContext).finish();
-            }else{
-                mBluetoothAdapter=mBleService.getmBluetoothAdapter();
             }
         }
 
@@ -103,88 +81,71 @@ public class BleLibary extends AppCompatActivity implements BleInterface {
         }
     };
 
-
-    /**
-     * Scan Ble device.
-     *
-     * @param enable If true, start scan ble device.False stop scan.
-     */
-    public void scanLeDevice(boolean enable) {
-        Log.i(TAG, "CGM--scanLeDevice");
-        this.scanLeDevice(enable, SCAN_PERIOD);
-    }
-    /**
-     * Scan Ble device.
-     *
-     * @param enable     If true, start scan ble device.False stop scan.
-     * @param scanPeriod scan ble period time
-     */
-    public void scanLeDevice(final boolean enable, long scanPeriod) {
-        Log.i(TAG, "CGM--scanLeDevice,enable="+enable);
-        if (mScanning) return;//如果正在扫描，下面就不用做了
-        if (enable) {//使能扫描
-            //Stop scanning after a predefined scan period.
-            new Handler().postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    mScanning = false;
-                    mBluetoothAdapter.stopLeScan(mLeScanCallback);
-                }
-            }, scanPeriod);
-            if(mBleDeviceListAdapter != null)//先把以前的适配器清空
-            {
-                mBleDeviceListAdapter.clear();
-                mBleDeviceListAdapter.notifyDataSetChanged();
-            }
-            if(!mScanning) { //如果没有扫描，则开始扫描
-                mScanning = true;
-                Log.i(TAG, "CGM--scanLeDevice,startLeScan()");
-                mBluetoothAdapter.startLeScan(mLeScanCallback);
-            }
-        } else {//停止扫描
-            if(mScanning) {//如果正在扫描，则停止
-                mScanning = false;
-                mBluetoothAdapter.stopLeScan(mLeScanCallback);
-            }
-        }
-    }
-
-    // Device scan callback.
-    private BluetoothAdapter.LeScanCallback mLeScanCallback = new BluetoothAdapter.LeScanCallback() {
-        AdvertisingBiz advertisingBiz=null;
+    private BroadcastReceiver bleReceiver = new BroadcastReceiver() {
         @Override
-        public void onLeScan(final BluetoothDevice device, int rssi, final byte[] scanRecord) {
-            Log.i(TAG, "CGM--BluetoothAdapter.LeScanCallback.onLeScan()");
-
-            //scanRecord       The content of the advertisement record(Advertising Data) offered by the remote device.
-            advertisingBiz=new AdvertisingBiz(mainContext,scanRecord);
-            advertisingBiz.handleAdvertise();
-            Log.i(TAG, "CGM--BluetoothAdapter.LeScanCallback:advertisement data="+ Conversion.byteArrayToHexStr(scanRecord));
-            Log.i(TAG, "CGM--BluetoothAdapter.LeScanCallback:advertisement manufactureName=" +advertisingBiz.advertisingInfo.manufacturerName);
-            Log.i(TAG, "CGM--BluetoothAdapter.LeScanCallback:advertisement dataColectOnOff=" + advertisingBiz.advertisingInfo.datatCollected);
-            Log.i(TAG, "CGM--BluetoothAdapter.LeScanCallback:advertisement deviceName=" + advertisingBiz.advertisingInfo.deviceName);
-
-            ((Activity) mainContext).runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    System.out.println("mLeScanCallback onLeScan run ");
-                    if (advertisingBiz.advertisingInfo.manufacturerName.equals("CGM")) {
-                        mBleDeviceListAdapter.addDevice(device);
-                        mBleDeviceListAdapter.notifyDataSetChanged();
-                    }
-                }
-            });
+        public void onReceive(Context context, Intent intent) {
+            Log.i(TAG, "CGM--onReceive()");
+            if (intent.getAction().equals(BleService.ACTION_BLUETOOTH_DEVICE)) {
+                String tmpDevName = intent.getStringExtra("name");
+                String tmpDevAddress = intent.getStringExtra("address");
+                Log.i(TAG, "CGM--name: " + tmpDevName + ", address: " + tmpDevAddress);
+                HashMap<String, Object> deviceMap = new HashMap<>();
+                deviceMap.put("name", tmpDevName);
+                deviceMap.put("address", tmpDevAddress);
+                deviceMap.put("isConnect", false);
+                deviceMapList.add(deviceMap);
+                showDeviceMapList(deviceMapList);
+            }
+//            else if (intent.getAction().equals(BleService.ACTION_GATT_CONNECTED)) {
+//                deviceList.get(0).put("isConnect", true);
+//                deviceAdapter.notifyDataSetChanged();
+//                dismissDialog();
+//            } else if (intent.getAction().equals(BleService.ACTION_GATT_DISCONNECTED)) {
+//                deviceList.get(0).put("isConnect", false);
+//                serviceList.clear();
+//                characteristicList.clear();
+//                deviceAdapter.notifyDataSetChanged();
+//                serviceAdapter.notifyDataSetChanged();
+//                dismissDialog();
+//            } else if (intent.getAction().equals(BleService.ACTION_SCAN_FINISHED)) {
+//                btn_scanBle.setEnabled(true);
+//                dismissDialog();
+//            }
         }
     };
+
+    private static IntentFilter makeIntentFilter() {
+        Log.i(TAG, "CGM--makeIntentFilter()");
+        final IntentFilter intentFilter = new IntentFilter();
+        intentFilter.addAction(BleService.ACTION_BLUETOOTH_DEVICE);
+        intentFilter.addAction(BleService.ACTION_SCAN_FINISHED);
+        intentFilter.addAction(BleService.ACTION_GATT_CONNECTED);
+        intentFilter.addAction(BleService.ACTION_GATT_DISCONNECTED);
+        return intentFilter;
+    }
+
 
     @Override
     public void openBle(Boolean enable) {
         if(enable){//打开蓝牙
-            if (mBleService.enableBluetooth(true)) {
-               if (!mScanning) {
-                    scanLeDevice(true);
-                    mScanDeviceDialog.show();
+            if(mBleService.isEnabledBluetooth()){
+                if (!mBleService.isScanning()) {
+                    mBleService.scanLeDevice(true);
                 }
+            }else
+            {
+                new Handler().postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        Log.i(TAG, "CGM--postDelayed()");
+                        if (!mBleService.isScanning()) {
+                            mBleService.scanLeDevice(true);
+                        }
+                    }
+                }, OPENBLE_PERIOD);
+            }
+            if (mBleService.enableBluetooth(true)) {
+                Toast.makeText(BleLibary.this, "Bluetooth was opened", Toast.LENGTH_SHORT).show();
             }
 
         }else{//关闭蓝牙
@@ -196,17 +157,15 @@ public class BleLibary extends AppCompatActivity implements BleInterface {
     @Override
     public void scanBleDevice(Boolean enable) {
         if(enable){//蓝牙开始扫描
-            if (!mScanning) {
-                scanLeDevice(true);
+            if (!mBleService.isScanning()) {
+                mBleService.scanLeDevice(true);
             }
-            mScanDeviceDialog.show();
         }
         else{//取消扫描
-            if (mScanning) {
-                scanLeDevice(false);
+            if (mBleService.isScanning()) {
+                mBleService.scanLeDevice(false);
             }
         }
-
     }
 
     /**
@@ -224,7 +183,15 @@ public class BleLibary extends AppCompatActivity implements BleInterface {
     protected void onDestroy() {
         super.onDestroy();
         this.doUnBindService();
+        unregisterReceiver(bleReceiver);
     }
 
-
+    @Override
+    public void onBackPressed() {
+        if (mBleService.isScanning()) {
+            mBleService.scanLeDevice(false);
+            return;
+        }
+        super.onBackPressed();
+    }
 }
